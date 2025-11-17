@@ -8,22 +8,41 @@ import {
   Alert,
   ImageBackground,
 } from 'react-native';
-import {styles} from './styles'
+import { styles } from './styles';
 import { emailRegex, validateLogin } from './validations';
 import { login } from '../../../services/auth.service';
-import { APP_VERSION } from '../../../utils/constants';
+import { APP_VERSION, DEFAULT_BUS_ID } from '../../../utils/constants';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../types';
+import { useGoogleLogin } from '../../../services/google-auth.service';
+import { RootStackParamList } from '../app-navigator';
+
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
-
 
 export default function LoginScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false); 
   const [error, setError] = useState<string | null>(null);
+
+const { startGoogleLogin, isLoading: isGoogleLoading, request } = useGoogleLogin({
+  onSuccess: (googleUser) => {
+    const userId =
+      (googleUser as any)?.uid ||
+      (googleUser as any)?.id ||
+      email.trim() || 
+      'anon';
+
+    const busId = DEFAULT_BUS_ID;
+
+    navigation.replace('BusOverview', {
+      userId,
+      busId,
+    });
+  },
+  onError: setError,
+});
 
   const handleLogin = async () => {
     const validationError = validateLogin(email, password);
@@ -36,7 +55,14 @@ export default function LoginScreen({ navigation }: Props) {
     setIsLoading(true);
     try {
       await login(email.trim(), password);
-     navigation.replace('Maps')
+
+      const userId = email.trim();
+      const busId = DEFAULT_BUS_ID;
+
+      navigation.replace('BusOverview', {
+        userId,
+        busId,  
+      });
     } catch (e: any) {
       const message = e?.message || 'Não foi possível fazer login. Tente novamente.';
       setError(message);
@@ -45,9 +71,11 @@ export default function LoginScreen({ navigation }: Props) {
     }
   };
 
+  const isAnyLoading = isLoading || isGoogleLoading;
+
   return (
     <ImageBackground
-      source={require('../../../assets/images/fantasminha.png')}
+      source={require('../../../assets/images/little-ghost-logo.png')}
       resizeMode="cover"
       style={styles.bg}
       imageStyle={styles.bgImage}
@@ -55,10 +83,6 @@ export default function LoginScreen({ navigation }: Props) {
       <View style={styles.overlay} />
       <View style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.title}>Entrar</Text>
-          <Text style={styles.subtitle}>
-            Acesse sua conta para acompanhar os ônibus em tempo real.
-          </Text>
         </View>
 
         {error ? (
@@ -127,12 +151,12 @@ export default function LoginScreen({ navigation }: Props) {
 
         <Pressable
           onPress={handleLogin}
-          disabled={isLoading}
+          disabled={isAnyLoading}
           accessibilityRole="button"
           style={({ pressed }) => [
             styles.primaryButton,
-            pressed && !isLoading ? styles.primaryButtonPressed : null,
-            isLoading ? styles.primaryButtonDisabled : null,
+            pressed && !isAnyLoading ? styles.primaryButtonPressed : null,
+            isAnyLoading ? styles.primaryButtonDisabled : null,
           ]}
         >
           {isLoading ? (
@@ -149,25 +173,40 @@ export default function LoginScreen({ navigation }: Props) {
         </View>
 
         <Pressable
-          onPress={() => Alert.alert('Login com Google', 'Implementar login social.')}
-          style={({ pressed }) => [styles.secondaryButton, pressed ? styles.secondaryButtonPressed : null]}
+          onPress={startGoogleLogin}
+          disabled={!request || isAnyLoading}
+          style={({ pressed }) => [
+            styles.secondaryButton,
+            pressed ? styles.secondaryButtonPressed : null,
+          ]}
           accessibilityRole="button"
         >
-          <Text style={styles.secondaryButtonText}>Continuar com Google</Text>
+          {isGoogleLoading ? (
+            <ActivityIndicator accessibilityLabel="Entrando com Google" />
+          ) : (
+            <Text style={styles.secondaryButtonText}>Continuar com Google</Text>
+          )}
         </Pressable>
 
         <View style={styles.signupRow}>
           <Text style={styles.signupText}>Ainda não tem conta?</Text>
-          <Pressable onPress={() =>  Alert.alert('Ainda não tem conta', 'Implementar Cadastro.')}>
+          <Pressable
+            onPress={() =>
+              Alert.alert('Ainda não tem conta', 'Implementar Cadastro.')
+            }
+          >
             <Text style={styles.signupLink}> Cadastre-se</Text>
           </Pressable>
         </View>
 
-        <Text accessible accessibilityLabel={`Versão do app ${APP_VERSION}`} style={styles.version}>
+        <Text
+          accessible
+          accessibilityLabel={`Versão do app ${APP_VERSION}`}
+          style={styles.version}
+        >
           v{APP_VERSION}
         </Text>
       </View>
     </ImageBackground>
   );
 }
-
