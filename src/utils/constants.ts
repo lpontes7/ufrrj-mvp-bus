@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.0.0";
+export const APP_VERSION = '1.0.0';
 
 export const RURAL_COORDS = {
   latitude: -22.7638,
@@ -7,4 +7,4 @@ export const RURAL_COORDS = {
   longitudeDelta: 0.01,
 };
 
-export const DEFAULT_BUS_ID = "ufrrj_bus_1";
+export const DEFAULT_BUS_ID = 'ufrrj_bus_1';

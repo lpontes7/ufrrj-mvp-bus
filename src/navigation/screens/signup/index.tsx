@@ -5,57 +5,37 @@ import {
   TextInput,
   Pressable,
   ActivityIndicator,
-  Alert,
   ImageBackground,
 } from 'react-native';
+
 import { styles } from './styles';
-import { emailRegex, validateLogin } from '../../../utils/validations';
-import { login } from '../../../services/auth.service';
+import { signup } from '../../../services/auth.service';
 import { APP_VERSION, DEFAULT_BUS_ID } from '../../../utils/constants';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useGoogleLogin } from '../../../services/google-auth.service';
 import { RootStackParamList } from '../app-navigator';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'Signup'>;
 
-export default function LoginScreen({ navigation }: Props) {
+export default function SignupScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const {
-    startGoogleLogin,
-    isLoading: isGoogleLoading,
-    request,
-  } = useGoogleLogin({
-    onSuccess: (googleUser) => {
-      const userId = (googleUser as any)?.uid || (googleUser as any)?.id || 'userError';
+  const isAnyLoading = isLoading; // mantém mesma ideia do Login
 
-      const busId = DEFAULT_BUS_ID;
-
-      navigation.replace('BusOverview', {
-        userId,
-        busId,
-      });
-    },
-    onError: setError,
-  });
-
-  const handleLogin = async () => {
-    const validationError = validateLogin(email, password);
-    if (validationError) {
-      setError(validationError);
+  async function handleSignup() {
+    if (!email || !password) {
+      setError('Preencha todos os campos.');
       return;
     }
 
-    setError(null);
     setIsLoading(true);
+    setError(null);
 
     try {
-      const resp = await login(email.trim(), password);
-
+      const resp = await signup(email.trim(), password.trim());
       const userId = resp.user.id;
       const busId = DEFAULT_BUS_ID;
 
@@ -64,14 +44,11 @@ export default function LoginScreen({ navigation }: Props) {
         busId,
       });
     } catch (e: any) {
-      const message = e?.message || 'Não foi possível fazer login. Tente novamente.';
-      setError(message);
+      setError(e.message || 'Não foi possível criar sua conta. Tente novamente.');
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const isAnyLoading = isLoading || isGoogleLoading;
+  }
 
   return (
     <ImageBackground
@@ -82,14 +59,16 @@ export default function LoginScreen({ navigation }: Props) {
     >
       <View style={styles.overlay} />
       <View style={styles.container}>
-        <View style={styles.header}></View>
+        {/* 👇 Mesmo header vazio do Login, só pra manter o espaçamento/ghost igual */}
+        <View style={styles.header} />
 
-        {error ? (
-          <View accessibilityRole="alert" style={styles.errorBox}>
+        {error && (
+          <View style={styles.errorBox}>
             <Text style={styles.errorText}>{error}</Text>
           </View>
-        ) : null}
+        )}
 
+        {/* E-MAIL */}
         <View style={styles.formGroup}>
           <Text style={styles.label}>E-mail</Text>
           <TextInput
@@ -102,31 +81,29 @@ export default function LoginScreen({ navigation }: Props) {
             autoComplete="email"
             placeholder="seuemail@exemplo.com"
             placeholderTextColor="#9aa0a6"
-            style={[
-              styles.input,
-              error && !emailRegex.test(email || ' ') ? styles.inputError : null,
-            ]}
+            style={styles.input}
             accessibilityLabel="Campo de e-mail"
             returnKeyType="next"
           />
         </View>
 
+        {/* SENHA + BOTÃO MOSTRAR/OCULTAR */}
         <View style={styles.formGroup}>
           <Text style={styles.label}>Senha</Text>
           <View style={styles.passwordRow}>
             <TextInput
               value={password}
               onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-              textContentType="password"
               autoCapitalize="none"
               autoCorrect={false}
+              secureTextEntry={!showPassword}
+              textContentType="password"
               placeholder="••••••••"
               placeholderTextColor="#9aa0a6"
               style={[styles.input, styles.passwordInput]}
               accessibilityLabel="Campo de senha"
               returnKeyType="go"
-              onSubmitEditing={handleLogin}
+              onSubmitEditing={handleSignup}
             />
             <Pressable
               onPress={() => setShowPassword((s) => !s)}
@@ -139,51 +116,35 @@ export default function LoginScreen({ navigation }: Props) {
           </View>
         </View>
 
+        {/* BOTÃO CRIAR CONTA */}
         <Pressable
-          onPress={handleLogin}
+          onPress={handleSignup}
           disabled={isAnyLoading}
-          accessibilityRole="button"
           style={({ pressed }) => [
             styles.primaryButton,
             pressed && !isAnyLoading ? styles.primaryButtonPressed : null,
             isAnyLoading ? styles.primaryButtonDisabled : null,
           ]}
+          accessibilityRole="button"
         >
           {isLoading ? (
-            <ActivityIndicator accessibilityLabel="Entrando" />
+            <ActivityIndicator />
           ) : (
-            <Text style={styles.primaryButtonText}>Entrar</Text>
+            <Text style={styles.primaryButtonText}>Criar conta</Text>
           )}
         </Pressable>
 
+        {/* Mesma “linha vazia” do Login (sem texto “ou”) */}
         <View style={styles.dividerRow}>
           <View style={styles.divider} />
-
           <View style={styles.divider} />
         </View>
 
-        {/* <Pressable
-          onPress={startGoogleLogin}
-          disabled={!request || isAnyLoading}
-          style={({ pressed }) => [
-            styles.secondaryButton,
-            pressed ? styles.secondaryButtonPressed : null,
-          ]}
-          accessibilityRole="button"
-        >
-          {isGoogleLoading ? (
-            <ActivityIndicator accessibilityLabel="Entrando com Google" />
-          ) : (
-            <Text style={styles.secondaryButtonText}>Continuar com Google</Text>
-          )}
-        </Pressable> */}
-
-        <View style={styles.signupRow}>
-          <Text style={styles.signupText}>Ainda não tem conta?</Text>
-          <Pressable onPress={() => navigation.navigate('Signup')}>
-            <Text style={styles.signupLink}> Cadastre-se</Text>
-          </Pressable>
-        </View>
+        {/* Link invertido em relação ao Login */}
+        <Pressable onPress={() => navigation.navigate('Login')} style={styles.signupRow}>
+          <Text style={styles.signupText}>Já tem conta?</Text>
+          <Text style={styles.signupLink}> Fazer login</Text>
+        </Pressable>
 
         <Text
           accessible

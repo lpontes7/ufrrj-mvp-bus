@@ -1,9 +1,7 @@
 // src/screens/BusOverviewScreen.tsx
-import {
-  BusLocationService,
-  BusSighting,
-} from "@/src/services/bus-location.service";
-import React, { useEffect, useState } from "react";
+import { BusLocationService } from '@/src/services/bus-location.service';
+import React, { useEffect, useState, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -12,14 +10,16 @@ import {
   ActivityIndicator,
   ScrollView,
   Modal,
-} from "react-native";
-import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { RootStackParamList } from "../app-navigator";
-import { styles } from "./styles";
-import { formatRelativeTime, formatTime } from "./utils";
-import ImageViewer from "react-native-image-zoom-viewer";
+} from 'react-native';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../app-navigator';
+import { styles } from './styles';
 
-type Props = NativeStackScreenProps<RootStackParamList, "BusOverview">;
+import ImageViewer from 'react-native-image-zoom-viewer';
+import { formatRelativeTime, formatTime } from '@/src/utils/functions';
+import { BusSighting, BusLiveShare } from '@/src/types/bus'; // 👈 adiciona BusLiveShare
+
+type Props = NativeStackScreenProps<RootStackParamList, 'BusOverview'>;
 
 export function BusOverviewScreen({ navigation, route }: Props) {
   const { userId, busId } = route.params;
@@ -27,6 +27,10 @@ export function BusOverviewScreen({ navigation, route }: Props) {
   const [sightings, setSightings] = useState<BusSighting[]>([]);
   const [isLoadingSightings, setIsLoadingSightings] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
+
+  const [liveShares, setLiveShares] = useState<BusLiveShare[]>([]); // 👈 guarda os compartilhamentos
+
+  const liveSharesCount = liveShares.length;
 
   const loadSightings = async () => {
     try {
@@ -41,7 +45,7 @@ export function BusOverviewScreen({ navigation, route }: Props) {
 
       setSightings(valid);
     } catch (error) {
-      console.log("Erro ao buscar avistamentos:", error);
+      console.log('Erro ao buscar avistamentos:', error);
     } finally {
       setIsLoadingSightings(false);
     }
@@ -51,29 +55,63 @@ export function BusOverviewScreen({ navigation, route }: Props) {
     loadSightings();
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadSightings();
+    }, []),
+  );
+
+  // 👇 listener dos compartilhamentos em tempo real
+  useEffect(() => {
+    const unsubscribe = BusLocationService.listenToLiveShares(busId, (shares) => {
+      setLiveShares(shares);
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [busId]);
+
   const handleOpenMap = () => {
-    navigation.navigate("Maps", { userId, busId });
+    navigation.navigate('Maps', { userId, busId });
   };
 
-  // imagem local para o ImageViewer
+  // quando clicar no card de status em tempo real
+  const handlePressLiveStatus = () => {
+    if (liveSharesCount >= 1) {
+      // pega o mais recente pelo updatedAt
+      const latestShare = liveShares.reduce((latest, current) =>
+        current.updatedAt > latest.updatedAt ? current : latest,
+      );
+
+      navigation.navigate('Maps', {
+        userId,
+        busId,
+        initialSighting: {
+          lat: latestShare.lat,
+          lng: latestShare.lng,
+          createdAt: latestShare.updatedAt,
+          direction: null,
+        },
+      });
+    }
+  };
+
   const scheduleImages = [
     {
-      url: "", // obrigatório, mas vazio pq usamos imagem local
+      url: '',
       props: {
-        source: require("../../../assets/images/bus-time.jpg"),
+        source: require('../../../assets/images/bus-time.png'),
       },
     },
   ];
 
   return (
     <>
-      <ScrollView style={{ flex: 1, backgroundColor: "#f5f5f5" }}>
+      <ScrollView style={{ flex: 1, backgroundColor: '#f5f5f5' }}>
         <View style={styles.container}>
-          <Text style={styles.title}>Informações do ônibus</Text>
-          <Text style={styles.subtitle}>Linha: {busId}</Text>
-
           {/* Grade de horários - botão que abre o zoom */}
-          <View style={styles.card}>
+          <View style={[styles.card, { marginTop: 20 }]}>
             <Text style={styles.cardTitle}>Grade de horários</Text>
 
             <Pressable
@@ -87,6 +125,29 @@ export function BusOverviewScreen({ navigation, route }: Props) {
               Toque para abrir a imagem com os horários do ônibus.
             </Text>
           </View>
+
+          {/* Status de compartilhamento em tempo real */}
+          <Pressable
+            style={[
+              styles.liveStatusCard,
+              liveSharesCount > 1 ? null : { opacity: 0.9 }, // só pra indicar que não é "clicável forte"
+            ]}
+            onPress={handlePressLiveStatus}
+          >
+            <View
+              style={[
+                styles.liveStatusDot,
+                liveSharesCount > 0 ? styles.liveStatusDotOn : styles.liveStatusDotOff,
+              ]}
+            />
+            <Text style={styles.liveStatusText}>
+              {liveSharesCount > 0
+                ? liveSharesCount === 1
+                  ? '1 ônibus compartilhando a localização em tempo real'
+                  : `${liveSharesCount} ônibus compartilhando a localização em tempo real`
+                : 'Nenhum ônibus está compartilhando a localização agora'}
+            </Text>
+          </Pressable>
 
           {/* Últimos avistamentos */}
           <View style={styles.card}>
@@ -105,9 +166,7 @@ export function BusOverviewScreen({ navigation, route }: Props) {
             )}
 
             {!isLoadingSightings && sightings.length === 0 && (
-              <Text style={styles.emptyText}>
-                Nenhum avistamento recente registrado.
-              </Text>
+              <Text style={styles.emptyText}>Nenhum avistamento recente registrado.</Text>
             )}
 
             {!isLoadingSightings && sightings.length > 0 && (
@@ -117,19 +176,48 @@ export function BusOverviewScreen({ navigation, route }: Props) {
                 scrollEnabled={false}
                 renderItem={({ item }) => {
                   const createdAtDate = new Date(item.createdAt);
+
+                  const directionLabel =
+                    item.direction === 'TO_49'
+                      ? '49'
+                      : item.direction === 'TO_RURAL'
+                        ? 'Rural'
+                        : 'Não informado';
+
                   return (
-                    <View style={styles.sightingRow}>
+                    <Pressable
+                      onPress={() =>
+                        navigation.navigate('Maps', {
+                          userId,
+                          busId,
+                          initialSighting: {
+                            lat: item.lat,
+                            lng: item.lng,
+                            createdAt: item.createdAt,
+                            direction: item.direction ?? null,
+                          },
+                        })
+                      }
+                      style={({ pressed }) => [
+                        styles.sightingRow,
+                        pressed && { backgroundColor: '#f0f9ff' },
+                      ]}
+                    >
                       <View style={{ flex: 1 }}>
                         <Text style={styles.sightingTime}>
                           {formatTime(createdAtDate)} (
                           {formatRelativeTime(item.createdAt)})
                         </Text>
-                        <Text style={styles.sightingCoords}>
-                          Lat: {item.lat.toFixed(5)} | Lng:{" "}
-                          {item.lng.toFixed(5)}
+
+                        <Text style={styles.sightingDirection}>
+                          Sentido: {directionLabel}
+                        </Text>
+
+                        <Text style={styles.sightingHint}>
+                          Toque para ver este ponto no mapa.
                         </Text>
                       </View>
-                    </View>
+                    </Pressable>
                   );
                 }}
               />
@@ -156,8 +244,8 @@ export function BusOverviewScreen({ navigation, route }: Props) {
             enableSwipeDown
             onSwipeDown={() => setShowScheduleModal(false)}
             saveToLocalByLongPress={false}
-            backgroundColor="#ffffff"          // fundo interno do viewer
-            style={{ backgroundColor: "#fff" }} // garante o style da View interna  
+            backgroundColor="#ffffff"
+            style={{ backgroundColor: '#fff' }}
           />
 
           <Pressable
