@@ -38,7 +38,7 @@ export class BusLocationService {
     const data = snap.val() as Record<string, any>;
 
     const now = Date.now();
-    const oneHourAgo = now - 60 * 60 * 1000; // 1 hora
+    const tenMinutesAgo = now - 10 * 60 * 1000; // 10 minutos
 
     const items: BusSighting[] = Object.entries(data)
       .map(([id, value]) => ({
@@ -51,17 +51,14 @@ export class BusLocationService {
         expiresAt: value.expiresAt,
         direction: value.direction ?? null,
       }))
-      // mantém só o que:
-      // - NÃO expirou (expiresAt > agora) OU não tem expiresAt
-      // - E foi criado na última 1 hora
       .filter((s) => {
         const createdAt = Number(s.createdAt);
         if (Number.isNaN(createdAt)) return false;
 
         const notExpired = !s.expiresAt || s.expiresAt > now;
-        const withinLastHour = createdAt >= oneHourAgo;
+        const withinLastTenMinutes = createdAt >= tenMinutesAgo;
 
-        return notExpired && withinLastHour;
+        return notExpired && withinLastTenMinutes;
       })
       // mais recentes primeiro
       .sort((a, b) => b.createdAt - a.createdAt)

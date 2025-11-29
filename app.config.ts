@@ -24,13 +24,11 @@ export default {
         appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
       },
       eas: {
-        projectId:process.env.EXPO_PUBLIC_EAS_PROJECT_ID,
+        projectId: process.env.EXPO_PUBLIC_EAS_PROJECT_ID,
       },
       google: {
-        expoClientId:
-          process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID,
-        androidClientId:
-          process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+        expoClientId: process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID,
+        androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
       },
     },
   },

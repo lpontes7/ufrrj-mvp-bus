@@ -192,4 +192,66 @@ export const styles = StyleSheet.create({
     color: '#777',
     fontSize: 12,
   },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  modalCard: {
+    width: '100%',
+    maxHeight: '80%',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 8,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 12,
+    color: '#111827',
+  },
+  modalBody: {
+    flexGrow: 0,
+    marginBottom: 16,
+  },
+  modalText: {
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 20,
+  },
+  modalButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  modalButton: {
+    minWidth: 110,
+    height: 44,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  modalButtonSecondary: {
+    backgroundColor: '#E5E7EB',
+  },
+  modalButtonSecondaryText: {
+    color: '#374151',
+    fontWeight: '600',
+  },
+  modalButtonPrimary: {
+    backgroundColor: '#006A4E',
+  },
+  modalButtonPrimaryText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
 });

@@ -48,6 +48,19 @@ const formatDistance = (meters: number): string => {
   return `${(meters / 1000).toFixed(1)} km`;
 };
 
+// RF10 – raio máximo de compartilhamento (5 km a partir do campus)
+const MAX_SHARE_DISTANCE_METERS = 5000; // 5 km
+
+const isWithinCampusRadius = (lat: number, lng: number): boolean => {
+  const dist = getDistanceInMeters(
+    lat,
+    lng,
+    RURAL_COORDS.latitude,
+    RURAL_COORDS.longitude,
+  );
+  return dist <= MAX_SHARE_DISTANCE_METERS;
+};
+
 export default function MapScreen({ route, navigation }: MapScreenProps) {
   const { userId, busId, initialSighting } = route.params;
 
@@ -76,6 +89,19 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
   const mapRef = useRef<MapView | null>(null);
   const sightingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const centerOnCampus = () => {
+    if (!mapRef.current) return;
+
+    mapRef.current.animateToRegion(
+      {
+        ...RURAL_COORDS,
+        latitudeDelta: 0.03,
+        longitudeDelta: 0.03,
+      },
+      800,
+    );
+  };
 
   const handleMarkerPress = (sighting: BusSighting) => {
     console.log('[MapScreen] marker pressed -> sighting', sighting);
@@ -318,16 +344,29 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
     const current = await Location.getCurrentPositionAsync({});
     console.log('[MapScreen] posição inicial dentro do ônibus:', current);
 
+    const { latitude, longitude } = current.coords;
+
+    // RF10 – valida se está dentro de 5 km do campus
+    if (!isWithinCampusRadius(latitude, longitude)) {
+      Alert.alert(
+        'Fora da área permitida',
+        'O compartilhamento de localização só é permitido em um raio de 5 km do campus da UFRRJ (Seropédica).',
+      );
+      setFlowStep('mapSearching');
+      centerOnCampus();
+      return;
+    }
+
     const initialRegion: Region = {
-      latitude: current.coords.latitude,
-      longitude: current.coords.longitude,
+      latitude,
+      longitude,
       latitudeDelta: 0.01,
       longitudeDelta: 0.01,
     };
 
     setUserLocation({
-      lat: current.coords.latitude,
-      lng: current.coords.longitude,
+      lat: latitude,
+      lng: longitude,
     });
 
     mapRef.current?.animateToRegion(initialRegion, 800);
@@ -345,6 +384,29 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
           latitude,
           longitude,
         });
+
+        // RF10 – se saiu da área permitida, interrompe compartilhamento
+        if (!isWithinCampusRadius(latitude, longitude)) {
+          console.log('[MapScreen] usuário saiu da área de 5 km, parando liveShare');
+
+          if (locationSubscription.current) {
+            locationSubscription.current.remove();
+            locationSubscription.current = null;
+          }
+
+          BusLocationService.stopLiveShare({ busId, userId }).catch((err) =>
+            console.log('[MapScreen] erro ao parar liveShare após sair da área:', err),
+          );
+
+          Alert.alert(
+            'Compartilhamento interrompido',
+            'Você saiu da área de 5 km do campus. O compartilhamento em tempo real foi encerrado.',
+          );
+
+          setFlowStep('mapSearching');
+          centerOnCampus();
+          return;
+        }
 
         setUserLocation({ lat: latitude, lng: longitude });
 
@@ -405,6 +467,16 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
     }
 
     const { lat, lng } = selectedPoint;
+
+    // RF10 – valida se o ponto marcado está dentro de 5 km do campus
+    if (!isWithinCampusRadius(lat, lng)) {
+      Alert.alert(
+        'Fora da área permitida',
+        'O compartilhamento de localização só é permitido em um raio de 5 km do campus da UFRRJ (Seropédica).',
+      );
+      centerOnCampus();
+      return;
+    }
 
     try {
       console.log('[MapScreen] confirmOutsideBusLocation:', {

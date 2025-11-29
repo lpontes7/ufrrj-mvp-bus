@@ -6,6 +6,8 @@ import {
   Pressable,
   ActivityIndicator,
   ImageBackground,
+  Modal,
+  ScrollView,
 } from 'react-native';
 
 import { styles } from './styles';
@@ -13,6 +15,7 @@ import { signup } from '../../../services/auth.service';
 import { APP_VERSION, DEFAULT_BUS_ID } from '../../../utils/constants';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../app-navigator';
+import { TermsContent } from '@/src/components/terms/terms-content';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Signup'>;
 
@@ -22,15 +25,28 @@ export default function SignupScreen({ navigation }: Props) {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
-  const isAnyLoading = isLoading; // mantém mesma ideia do Login
+  const isAnyLoading = isLoading;
 
-  async function handleSignup() {
+  // Primeiro passo: validar e abrir o modal de termos
+  // First step: validate and open the terms modal
+  function handleOpenTerms() {
     if (!email || !password) {
       setError('Preencha todos os campos.');
       return;
     }
 
+    // aqui você pode fazer validação básica de e-mail/senha se quiser
+    // you can add basic email/password validation here if you want
+
+    setError(null);
+    setShowTermsModal(true);
+  }
+
+  // Segundo passo: usuário aceitou os termos → faz o cadastro de fato
+  // Second step: user accepted the terms → actually perform sign-up
+  async function handleAcceptTermsAndSignup() {
     setIsLoading(true);
     setError(null);
 
@@ -38,6 +54,8 @@ export default function SignupScreen({ navigation }: Props) {
       const resp = await signup(email.trim(), password.trim());
       const userId = resp.user.id;
       const busId = DEFAULT_BUS_ID;
+
+      setShowTermsModal(false);
 
       navigation.replace('BusOverview', {
         userId,
@@ -50,6 +68,15 @@ export default function SignupScreen({ navigation }: Props) {
     }
   }
 
+  // Usuário não aceitou os termos
+  // User did not accept the terms
+  function handleDeclineTerms() {
+    setShowTermsModal(false);
+    setError(
+      'Para criar uma conta, é necessário aceitar os Termos de Uso e a Política de Privacidade.',
+    );
+  }
+
   return (
     <ImageBackground
       source={require('../../../assets/images/little-ghost-logo.png')}
@@ -59,7 +86,6 @@ export default function SignupScreen({ navigation }: Props) {
     >
       <View style={styles.overlay} />
       <View style={styles.container}>
-        {/* 👇 Mesmo header vazio do Login, só pra manter o espaçamento/ghost igual */}
         <View style={styles.header} />
 
         {error && (
@@ -103,7 +129,7 @@ export default function SignupScreen({ navigation }: Props) {
               style={[styles.input, styles.passwordInput]}
               accessibilityLabel="Campo de senha"
               returnKeyType="go"
-              onSubmitEditing={handleSignup}
+              onSubmitEditing={handleOpenTerms}
             />
             <Pressable
               onPress={() => setShowPassword((s) => !s)}
@@ -116,9 +142,10 @@ export default function SignupScreen({ navigation }: Props) {
           </View>
         </View>
 
-        {/* BOTÃO CRIAR CONTA */}
+        {/* BOTÃO CRIAR CONTA – agora só abre o modal */}
+        {/* CREATE ACCOUNT BUTTON – now it only opens the modal */}
         <Pressable
-          onPress={handleSignup}
+          onPress={handleOpenTerms}
           disabled={isAnyLoading}
           style={({ pressed }) => [
             styles.primaryButton,
@@ -134,13 +161,11 @@ export default function SignupScreen({ navigation }: Props) {
           )}
         </Pressable>
 
-        {/* Mesma “linha vazia” do Login (sem texto “ou”) */}
         <View style={styles.dividerRow}>
           <View style={styles.divider} />
           <View style={styles.divider} />
         </View>
 
-        {/* Link invertido em relação ao Login */}
         <Pressable onPress={() => navigation.navigate('Login')} style={styles.signupRow}>
           <Text style={styles.signupText}>Já tem conta?</Text>
           <Text style={styles.signupLink}> Fazer login</Text>
@@ -154,6 +179,51 @@ export default function SignupScreen({ navigation }: Props) {
           v{APP_VERSION}
         </Text>
       </View>
+
+      {/* MODAL DE TERMOS DE USO E POLÍTICA DE PRIVACIDADE */}
+      {/* TERMS OF USE & PRIVACY POLICY MODAL */}
+      <Modal
+        visible={showTermsModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          if (!isAnyLoading) {
+            handleDeclineTerms();
+          }
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Termos de Uso e Política de Privacidade</Text>
+
+            <ScrollView style={styles.modalBody}>
+              <TermsContent />
+            </ScrollView>
+
+            <View style={styles.modalButtonsRow}>
+              <Pressable
+                style={[styles.modalButton, styles.modalButtonSecondary]}
+                onPress={handleDeclineTerms}
+                disabled={isAnyLoading}
+              >
+                <Text style={styles.modalButtonSecondaryText}>Não aceito</Text>
+              </Pressable>
+
+              <Pressable
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={handleAcceptTermsAndSignup}
+                disabled={isAnyLoading}
+              >
+                {isLoading ? (
+                  <ActivityIndicator />
+                ) : (
+                  <Text style={styles.modalButtonPrimaryText}>Li e aceito</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ImageBackground>
   );
 }
