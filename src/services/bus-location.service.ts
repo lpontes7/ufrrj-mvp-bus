@@ -8,6 +8,8 @@ import {
   orderByChild,
   limitToLast,
   onValue,
+  DataSnapshot,
+  off,
 } from 'firebase/database';
 import { db } from '../config/firebase';
 import {
@@ -18,6 +20,7 @@ import {
   SendOutsideBusSightParams,
 } from '../types/bus';
 
+type ListenCallback<T> = (items: T[]) => void;
 export class BusLocationService {
   // 🔹 lista os últimos avistamentos (pontos fixos)
   static async getLastSightings({
@@ -38,7 +41,7 @@ export class BusLocationService {
     const data = snap.val() as Record<string, any>;
 
     const now = Date.now();
-    const oneHourAgo = now - 60 * 60 * 1000; // 1 hora
+    const tenMinutesAgo = now - 10 * 60 * 1000; // 10 minutos
 
     const items: BusSighting[] = Object.entries(data)
       .map(([id, value]) => ({
@@ -51,17 +54,14 @@ export class BusLocationService {
         expiresAt: value.expiresAt,
         direction: value.direction ?? null,
       }))
-      // mantém só o que:
-      // - NÃO expirou (expiresAt > agora) OU não tem expiresAt
-      // - E foi criado na última 1 hora
       .filter((s) => {
         const createdAt = Number(s.createdAt);
         if (Number.isNaN(createdAt)) return false;
 
         const notExpired = !s.expiresAt || s.expiresAt > now;
-        const withinLastHour = createdAt >= oneHourAgo;
+        const withinLastTenMinutes = createdAt >= tenMinutesAgo;
 
-        return notExpired && withinLastHour;
+        return notExpired && withinLastTenMinutes;
       })
       // mais recentes primeiro
       .sort((a, b) => b.createdAt - a.createdAt)
@@ -103,6 +103,47 @@ export class BusLocationService {
       // se quiser "forçar" expiração lógica em 1h:
       expiresAt: now + 60 * 60 * 1000,
     });
+  }
+
+  static listenToSightings(
+    busId: string,
+    callback: ListenCallback<BusSighting>,
+  ): () => void {
+    const sightingsRef = ref(db, `buses/${busId}/sightings`);
+    const sightingsQuery = query(sightingsRef, limitToLast(10)); // se quiser limitar aqui
+
+    const handler = (snapshot: DataSnapshot) => {
+      const value = snapshot.val() || {};
+      const now = Date.now();
+
+      const sightings: BusSighting[] = Object.keys(value).map((key) => {
+        const item = value[key];
+
+        const sighting: BusSighting = {
+          id: item.id ?? key,
+          busId: item.busId ?? busId, // 👈 garante o busId
+          userId: item.userId, // 👈 vem de quem registrou o avistamento
+          lat: item.lat,
+          lng: item.lng,
+          direction: item.direction,
+          createdAt: item.createdAt,
+          expiresAt: item.expiresAt,
+        };
+
+        return sighting;
+      });
+
+      // regra de expiração (ex: baseado em expiresAt)
+      const valid = sightings.filter((s) => !s.expiresAt || s.expiresAt > now);
+
+      callback(valid);
+    };
+
+    onValue(sightingsQuery, handler);
+
+    return () => {
+      off(sightingsQuery, 'value', handler);
+    };
   }
 
   // 🔹 compartilhar localização em tempo real (dentro do ônibus)

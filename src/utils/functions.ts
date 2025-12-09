@@ -35,3 +35,26 @@ export function formatRelativeTime(timestamp: number) {
   if (diffHours === 1) return 'há 1 hora';
   return `há ${diffHours} horas`;
 }
+
+export function normalizeCreatedAt(raw: any): number {
+  if (typeof raw === 'number') return raw;
+
+  if (typeof raw === 'string') {
+    const parsed = Number(raw);
+    if (!isNaN(parsed)) return parsed;
+
+    const parsedIso = Date.parse(raw);
+    if (!isNaN(parsedIso)) return parsedIso;
+  }
+
+  if (raw instanceof Date) {
+    return raw.getTime();
+  }
+
+  if (raw && typeof raw === 'object' && 'seconds' in raw) {
+    return raw.seconds * 1000;
+  }
+
+  // fallback seguro
+  return Date.now();
+}
