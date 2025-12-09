@@ -23,7 +23,7 @@ export type BusSighting = {
   userId: string;
   lat: number;
   lng: number;
-  createdAt: number;
+  createdAt: number | string | Date | { seconds: number; nanoseconds?: number };
   expiresAt?: number;
   direction?: BusDirection | null;
 };

@@ -8,3 +8,5 @@ export const RURAL_COORDS = {
 };
 
 export const DEFAULT_BUS_ID = 'ufrrj_bus_1';
+
+export const MAX_SIGHTING_AGE_MS = 5 * 60 * 1000;

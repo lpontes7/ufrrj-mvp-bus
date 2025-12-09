@@ -4,7 +4,7 @@ import { View, Text, Modal, Pressable, Image, Alert } from 'react-native';
 import MapView, { Marker, MapPressEvent, Region } from 'react-native-maps';
 import * as Location from 'expo-location';
 
-import { RURAL_COORDS } from '@/src/utils/constants';
+import { MAX_SIGHTING_AGE_MS, RURAL_COORDS } from '@/src/utils/constants';
 import { styles } from './styles';
 
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -166,9 +166,93 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
     }
   };
 
-  useEffect(() => {
-    loadSightings();
-  }, [busId]);
+useEffect(() => {
+  console.log('[MapScreen] iniciando listener sightings', { busId });
+
+  const isFirebaseTimestamp = (
+    v: any,
+  ): v is { seconds: number; nanoseconds?: number } => {
+    return v && typeof v === 'object' && 'seconds' in v;
+  };
+
+  const unsubscribe = BusLocationService.listenToSightings(
+    busId,
+    (newSightings) => {
+      console.log(
+        '[MapScreen] sightings recebidos (raw):',
+        JSON.stringify(newSightings, null, 2),
+      );
+
+      const now = Date.now();
+
+      const validSightings = newSightings.filter((s) => {
+        const rawCreatedAt = s.createdAt;
+        let createdAtMs: number | null = null;
+
+        try {
+          if (typeof rawCreatedAt === 'number') {
+            // timestamp em ms
+            createdAtMs = rawCreatedAt;
+          } else if (typeof rawCreatedAt === 'string') {
+            // tenta número
+            const parsedNum = Number(rawCreatedAt);
+            if (!Number.isNaN(parsedNum)) {
+              createdAtMs = parsedNum;
+            } else {
+              // tenta ISO string
+              const parsedIso = Date.parse(rawCreatedAt);
+              createdAtMs = Number.isNaN(parsedIso) ? null : parsedIso;
+            }
+          } else if (rawCreatedAt instanceof Date) {
+            createdAtMs = rawCreatedAt.getTime();
+          } else if (isFirebaseTimestamp(rawCreatedAt)) {
+            createdAtMs = rawCreatedAt.seconds * 1000;
+          }
+        } catch (e) {
+          console.log(
+            '[MapScreen] erro ao interpretar createdAt em listener:',
+            e,
+          );
+          createdAtMs = null;
+        }
+
+        if (!createdAtMs || !Number.isFinite(createdAtMs)) {
+          console.log(
+            '[MapScreen] descartando avistamento: createdAt inválido',
+            rawCreatedAt,
+          );
+          return false;
+        }
+
+        const diff = now - createdAtMs;
+
+        if (diff > MAX_SIGHTING_AGE_MS) {
+          console.log(
+            '[MapScreen] descartando avistamento (velho de mais): diffMs=',
+            diff,
+          );
+          return false;
+        }
+
+        return true;
+      });
+
+      console.log(
+        '[MapScreen] sightings válidos (<=10 min):',
+        validSightings.length,
+      );
+
+      setSightings(validSightings);
+    },
+  );
+
+  return () => {
+    if (unsubscribe) {
+      unsubscribe();
+    }
+  };
+}, [busId]);
+
 
   // localização do usuário para cálculo de distância
   useEffect(() => {
@@ -325,13 +409,14 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
     );
   };
 
-  const handleInsideBus = async () => {
-    console.log('[MapScreen] handleInsideBus');
-    setShowInitialModal(false);
-    setFlowStep('insideBus');
-    setSelectedSightingInfo(null);
-    setFollowLiveShareId(null);
+const handleInsideBus = async () => {
+  console.log('[MapScreen] handleInsideBus');
+  setShowInitialModal(false);
+  setFlowStep('insideBus');
+  setSelectedSightingInfo(null);
+  setFollowLiveShareId(null);
 
+  try {
     const { status } = await Location.requestForegroundPermissionsAsync();
     console.log('[MapScreen] permissão localização:', status);
 
@@ -341,7 +426,10 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
       return;
     }
 
-    const current = await Location.getCurrentPositionAsync({});
+    // 🔹 pega a posição atual (mais precisa)
+    const current = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.High,
+    });
     console.log('[MapScreen] posição inicial dentro do ônibus:', current);
 
     const { latitude, longitude } = current.coords;
@@ -371,6 +459,21 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
 
     mapRef.current?.animateToRegion(initialRegion, 800);
 
+    // ⬇️⬇️⬇️ **ENVIO IMEDIATO DA PRIMEIRA LOCALIZAÇÃO**
+    try {
+      console.log('[MapScreen] envio inicial de localização (inside bus)');
+      await sendInsideBusLocationToFirebase(latitude, longitude);
+    } catch (err) {
+      console.log('[MapScreen] erro ao enviar localização inicial:', err);
+      Alert.alert(
+        'Erro',
+        'Não foi possível iniciar o compartilhamento de localização. Tente novamente.',
+      );
+      setFlowStep('mapSearching');
+      return;
+    }
+
+    // ⬇️ watcher contínuo depois do envio inicial
     locationSubscription.current = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.High,
@@ -411,7 +514,7 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
         setUserLocation({ lat: latitude, lng: longitude });
 
         sendInsideBusLocationToFirebase(latitude, longitude).catch((err) =>
-          console.log('[MapScreen] erro ao enviar localização:', err),
+          console.log('[MapScreen] erro ao enviar localização (watch):', err),
         );
 
         mapRef.current?.animateCamera({
@@ -419,7 +522,15 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
         });
       },
     );
-  };
+  } catch (err) {
+    console.log('[MapScreen] erro genérico no handleInsideBus:', err);
+    Alert.alert(
+      'Erro',
+      'Não foi possível iniciar o compartilhamento de localização. Tente novamente.',
+    );
+    setFlowStep('mapSearching');
+  }
+};
 
   const handleOutsideBus = () => {
     console.log('[MapScreen] handleOutsideBus');
@@ -431,43 +542,49 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
     setSelectedSightingInfo(null);
     setFollowLiveShareId(null);
 
+    // 👉 ao entrar no fluxo "fora do ônibus", centraliza no campus
+    centerOnCampus();
+
     if (sightingTimeoutRef.current) {
       clearTimeout(sightingTimeoutRef.current);
       sightingTimeoutRef.current = null;
     }
   };
 
-  const handleMapPress = (event: MapPressEvent) => {
-    setSelectedSightingInfo(null);
-    setFollowLiveShareId(null);
+const handleMapPress = (event: MapPressEvent) => {
+  setSelectedSightingInfo(null);
+  setFollowLiveShareId(null);
 
-    if (flowStep !== 'outsideBus') return;
+  if (flowStep !== 'outsideBus') return;
 
-    const { latitude, longitude } = event.nativeEvent.coordinate;
+  const { latitude, longitude } = event.nativeEvent.coordinate;
 
-    console.log('[MapScreen] handleMapPress outsideBus:', {
-      latitude,
-      longitude,
-    });
+  console.log('[MapScreen] handleMapPress outsideBus:', {
+    latitude,
+    longitude,
+  });
 
-    setSelectedPoint({ lat: latitude, lng: longitude });
-    setDirection(null);
-    setShowOutsideBanner(true);
-  };
+  // 🚫 RF10 – não permite nem marcar ponto fora do raio
+  if (!isWithinCampusRadius(latitude, longitude)) {
+    Alert.alert(
+      'Fora da área permitida',
+      'Você só pode marcar avistamentos em um raio de 5 km do campus da UFRRJ (Seropédica).',
+    );
+
+    // opcional: volta o foco pro campus de novo
+    centerOnCampus();
+    return;
+  }
+
+  setSelectedPoint({ lat: latitude, lng: longitude });
+  setDirection(null);
+  setShowOutsideBanner(true);
+};
+
 
   const handleConfirmOutsideBusLocation = async () => {
     if (!selectedPoint) return;
-
-    if (!direction) {
-      Alert.alert(
-        'Selecione o sentido',
-        'Escolha se o ônibus está indo para a Rural ou para o 49.',
-      );
-      return;
-    }
-
     const { lat, lng } = selectedPoint;
-
     // RF10 – valida se o ponto marcado está dentro de 5 km do campus
     if (!isWithinCampusRadius(lat, lng)) {
       Alert.alert(
@@ -477,6 +594,15 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
       centerOnCampus();
       return;
     }
+    
+    if (!direction) {
+      Alert.alert(
+        'Selecione o sentido',
+        'Escolha se o ônibus está indo para a Rural ou para o 49.',
+      );
+      return;
+    }
+
 
     try {
       console.log('[MapScreen] confirmOutsideBusLocation:', {
@@ -486,8 +612,6 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
       });
 
       await sendOutsideBusSightToFirebase(lat, lng, direction);
-
-      await loadSightings();
 
       setSelectedPoint(null);
       setDirection(null);
@@ -517,20 +641,46 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
   }, [followLiveShareId, liveShares]);
 
   // --------- helper seguro para horário do avistamento selecionado ---------
+  // --------- helper seguro para horário do avistamento selecionado ---------
   const renderSelectedSightingInfo = () => {
     if (!selectedSightingInfo) return null;
 
     const rawCreatedAt = selectedSightingInfo.createdAt;
-    let createdAtTimestamp: number | null = null;
 
-    if (typeof rawCreatedAt === 'number') {
-      createdAtTimestamp = rawCreatedAt;
-    } else if (typeof rawCreatedAt === 'string') {
-      const parsed = Number(rawCreatedAt);
-      createdAtTimestamp = Number.isNaN(parsed) ? null : parsed;
+    let createdAtMs: number | null = null;
+
+    try {
+      if (typeof rawCreatedAt === 'number') {
+        // já é timestamp em ms
+        createdAtMs = rawCreatedAt;
+      } else if (typeof rawCreatedAt === 'string') {
+        const parsed = Number(rawCreatedAt);
+        createdAtMs = Number.isNaN(parsed) ? null : parsed;
+      } else if (
+        rawCreatedAt &&
+        typeof rawCreatedAt === 'object' &&
+        // suporte para Timestamp do Firestore, se for o caso
+        'seconds' in rawCreatedAt
+      ) {
+        const anyTs = rawCreatedAt as { seconds: number; nanoseconds?: number };
+        createdAtMs = anyTs.seconds * 1000;
+      }
+    } catch (e) {
+      console.log('[MapScreen] erro ao interpretar createdAt do avistamento:', e);
+      createdAtMs = null;
     }
 
-    const hasValidTime = createdAtTimestamp !== null;
+    let horarioTexto = 'Não informado';
+
+    if (createdAtMs && Number.isFinite(createdAtMs)) {
+      try {
+        const dateObj = new Date(createdAtMs);
+        horarioTexto = `${formatTime(dateObj)} (${formatRelativeTime(createdAtMs)})`;
+      } catch (e) {
+        console.log('[MapScreen] erro ao formatar horário do avistamento:', e);
+        horarioTexto = 'Não informado';
+      }
+    }
 
     return (
       <View
@@ -559,14 +709,7 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
           Avistamento selecionado
         </Text>
 
-        <Text style={{ fontSize: 13 }}>
-          Horário:{' '}
-          {hasValidTime
-            ? `${formatTime(new Date(createdAtTimestamp!))} (${formatRelativeTime(
-                createdAtTimestamp!,
-              )})`
-            : 'Não informado'}
-        </Text>
+        <Text style={{ fontSize: 13 }}>Horário: {horarioTexto}</Text>
 
         <Text style={{ fontSize: 13, marginTop: 2 }}>
           Sentido: {getDirectionLabel(selectedSightingInfo.direction)}

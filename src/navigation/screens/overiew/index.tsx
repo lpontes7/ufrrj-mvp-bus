@@ -16,8 +16,8 @@ import { RootStackParamList } from '../app-navigator';
 import { styles } from './styles';
 
 import ImageViewer from 'react-native-image-zoom-viewer';
-import { formatRelativeTime, formatTime } from '@/src/utils/functions';
-import { BusSighting, BusLiveShare } from '@/src/types/bus'; // 👈 adiciona BusLiveShare
+import { formatRelativeTime, formatTime, normalizeCreatedAt } from '@/src/utils/functions';
+import { BusSighting, BusLiveShare } from '@/src/types/bus';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BusOverview'>;
 
@@ -28,7 +28,7 @@ export function BusOverviewScreen({ navigation, route }: Props) {
   const [isLoadingSightings, setIsLoadingSightings] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
 
-  const [liveShares, setLiveShares] = useState<BusLiveShare[]>([]); // 👈 guarda os compartilhamentos
+  const [liveShares, setLiveShares] = useState<BusLiveShare[]>([]);
 
   const liveSharesCount = liveShares.length;
 
@@ -69,6 +69,32 @@ export function BusOverviewScreen({ navigation, route }: Props) {
 
     return () => {
       if (unsubscribe) unsubscribe();
+    };
+  }, [busId]);
+
+  // 👇 listener dos avistamentos em tempo real
+  useEffect(() => {
+    const unsubscribe = BusLocationService.listenToSightings(
+      busId,
+      (newSightings) => {
+        const now = Date.now();
+
+        // reaplica a mesma regra de expiração baseada em expiresAt
+        const valid = newSightings.filter(
+          (s) => !s.expiresAt || s.expiresAt > now,
+        );
+
+        // garante no máximo 5 itens na lista
+        const limited = valid.slice(0, 5);
+
+        setSightings(limited);
+      },
+    );
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
     };
   }, [busId]);
 
@@ -130,7 +156,7 @@ export function BusOverviewScreen({ navigation, route }: Props) {
           <Pressable
             style={[
               styles.liveStatusCard,
-              liveSharesCount > 1 ? null : { opacity: 0.9 }, // só pra indicar que não é "clicável forte"
+              liveSharesCount > 1 ? null : { opacity: 0.9 },
             ]}
             onPress={handlePressLiveStatus}
           >
@@ -175,7 +201,7 @@ export function BusOverviewScreen({ navigation, route }: Props) {
                 keyExtractor={(item) => item.id}
                 scrollEnabled={false}
                 renderItem={({ item }) => {
-                  const createdAtDate = new Date(item.createdAt);
+          const createdAtDate = new Date(normalizeCreatedAt(item.createdAt));
 
                   const directionLabel =
                     item.direction === 'TO_49'
@@ -193,7 +219,7 @@ export function BusOverviewScreen({ navigation, route }: Props) {
                           initialSighting: {
                             lat: item.lat,
                             lng: item.lng,
-                            createdAt: item.createdAt,
+       createdAt: normalizeCreatedAt(item.createdAt),
                             direction: item.direction ?? null,
                           },
                         })
@@ -206,7 +232,7 @@ export function BusOverviewScreen({ navigation, route }: Props) {
                       <View style={{ flex: 1 }}>
                         <Text style={styles.sightingTime}>
                           {formatTime(createdAtDate)} (
-                          {formatRelativeTime(item.createdAt)})
+               {formatRelativeTime(normalizeCreatedAt(item.createdAt))}
                         </Text>
 
                         <Text style={styles.sightingDirection}>
